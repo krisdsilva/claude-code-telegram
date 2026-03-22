@@ -65,6 +65,56 @@ class StreamUpdate:
     metadata: Optional[Dict] = None
 
 
+def _load_skill_summaries(skills_dir: Path) -> List[str]:
+    """Load skill name+description summaries from SKILL.md files.
+
+    Parses YAML frontmatter to extract name and description fields,
+    handling multi-line YAML values (>, >-, |).
+    """
+    summaries = []
+    for skill_file in sorted(skills_dir.rglob("SKILL.md")):
+        try:
+            content = skill_file.read_text(encoding="utf-8")
+            if not content.startswith("---"):
+                continue
+            end = content.index("---", 3)
+            frontmatter = content[3:end].strip()
+
+            # Simple YAML frontmatter parser for name/description
+            name = ""
+            desc_lines: List[str] = []
+            current_key = ""
+            for line in frontmatter.split("\n"):
+                stripped = line.strip()
+                # Top-level key (not indented continuation)
+                if line and not line[0].isspace() and ":" in line:
+                    key, _, val = line.partition(":")
+                    key = key.strip()
+                    val = val.strip()
+                    current_key = key
+                    if key == "name":
+                        name = val
+                    elif key == "description":
+                        # Value may be inline or multi-line (>, >-, |)
+                        if val and val not in (">", ">-", "|", "|+"):
+                            desc_lines = [val]
+                        else:
+                            desc_lines = []
+                elif current_key == "description" and stripped:
+                    desc_lines.append(stripped)
+
+            if name:
+                desc = " ".join(desc_lines).strip()
+                # Truncate long descriptions to keep prompt lean
+                if len(desc) > 200:
+                    desc = desc[:197] + "..."
+                rel_path = skill_file.relative_to(skills_dir)
+                summaries.append(f"- **{name}** (`{rel_path}`): {desc}")
+        except Exception:
+            pass
+    return summaries
+
+
 def _make_can_use_tool_callback(
     security_validator: SecurityValidator,
     working_directory: Path,
@@ -172,11 +222,13 @@ class ClaudeSDKManager:
                 stderr_lines.append(line)
                 logger.debug("Claude CLI stderr", line=line)
 
-            # Build system prompt, loading CLAUDE.md from working directory if present
+            # Build system prompt, loading CLAUDE.md and project context
             base_prompt = (
                 f"All file operations must stay within {working_directory}. "
                 "Use relative paths."
             )
+
+            # Load CLAUDE.md from working directory
             claude_md_path = Path(working_directory) / "CLAUDE.md"
             if claude_md_path.exists():
                 base_prompt += "\n\n" + claude_md_path.read_text(encoding="utf-8")
@@ -184,6 +236,44 @@ class ClaudeSDKManager:
                     "Loaded CLAUDE.md into system prompt",
                     path=str(claude_md_path),
                 )
+
+            # Load task board (.claude/board.md) if present
+            board_path = Path(working_directory) / ".claude" / "board.md"
+            if board_path.exists():
+                base_prompt += (
+                    "\n\n# Task Board\n"
+                    "Current project tasks (update as you complete work):\n\n"
+                    + board_path.read_text(encoding="utf-8")
+                )
+                logger.info("Loaded task board into system prompt")
+
+            # Load project memory (.claude/memory/memory.md) if present
+            memory_index = Path(working_directory) / ".claude" / "memory" / "memory.md"
+            if memory_index.exists():
+                base_prompt += (
+                    "\n\n# Project Memory\n"
+                    + memory_index.read_text(encoding="utf-8")
+                )
+                logger.info(
+                    "Loaded memory index into system prompt",
+                    path=str(memory_index),
+                )
+
+            # Load skill descriptions from .claude/skills/
+            skills_dir = Path(working_directory) / ".claude" / "skills"
+            if skills_dir.is_dir():
+                skill_summaries = _load_skill_summaries(skills_dir)
+                if skill_summaries:
+                    base_prompt += (
+                        "\n\n# Available Skills\n"
+                        "Read the full SKILL.md file before using a skill. "
+                        f"Skills directory: `{skills_dir}`.\n\n"
+                        + "\n".join(skill_summaries)
+                    )
+                    logger.info(
+                        "Loaded skill summaries into system prompt",
+                        count=len(skill_summaries),
+                    )
 
             # When DISABLE_TOOL_VALIDATION=true, pass None for allowed/disallowed
             # tools so the SDK does not restrict tool usage (e.g. MCP tools).
