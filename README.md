@@ -5,12 +5,15 @@
 
 A Telegram bot that gives you remote access to [Claude Code](https://claude.ai/code). Chat naturally with Claude about your projects from anywhere -- no terminal commands needed.
 
+> **This fork** ([krisdsilva/claude-code-telegram](https://github.com/krisdsilva/claude-code-telegram)) adds automatic project context loading -- Claude picks up each project's `CLAUDE.md`, skills, task board, and memory. See [Project Context Loading](#project-context-loading).
+
 ## What is this?
 
 This bot connects Telegram to Claude Code, providing a conversational AI interface for your codebase:
 
 - **Chat naturally** -- ask Claude to analyze, edit, or explain your code in plain language
 - **Maintain context** across conversations with automatic session persistence per project
+- **Project-aware** -- each Telegram topic maps to a project directory, with Claude automatically loading that project's `CLAUDE.md`, skills, memory, and task board
 - **Code on the go** from any device with Telegram
 - **Receive proactive notifications** from webhooks, scheduled jobs, and CI/CD events
 - **Stay secure** with built-in authentication, directory sandboxing, and audit logging
@@ -41,28 +44,26 @@ Bot: Running pytest...
 
 Choose your preferred method:
 
-#### Option A: Install from a release tag (Recommended)
+#### Option A: Install from this fork (Recommended)
 
 ```bash
-# Using uv (recommended — installs in an isolated environment)
-uv tool install git+https://github.com/RichardAtCT/claude-code-telegram@v1.3.0
+# Using pip
+pip install git+https://github.com/krisdsilva/claude-code-telegram@feat/project-context-loading
 
-# Or using pip
-pip install git+https://github.com/RichardAtCT/claude-code-telegram@v1.3.0
-
-# Track the latest stable release
-pip install git+https://github.com/RichardAtCT/claude-code-telegram@latest
+# Or using uv (isolated environment)
+uv tool install git+https://github.com/krisdsilva/claude-code-telegram@feat/project-context-loading
 ```
 
 #### Option B: From source (for development)
 
 ```bash
-git clone https://github.com/RichardAtCT/claude-code-telegram.git
+git clone https://github.com/krisdsilva/claude-code-telegram.git
 cd claude-code-telegram
+git checkout feat/project-context-loading
 make dev  # requires Poetry
 ```
 
-> **Note:** Always install from a tagged release (not `main`) for stability. See [Releases](https://github.com/RichardAtCT/claude-code-telegram/releases) for available versions.
+> **Upstream:** This fork is based on [RichardAtCT/claude-code-telegram](https://github.com/RichardAtCT/claude-code-telegram). See upstream [Releases](https://github.com/RichardAtCT/claude-code-telegram/releases) for version history.
 
 ### 3. Configure
 
@@ -295,6 +296,168 @@ To use topics with your bot, enable them in BotFather:
 ### Finding Your Telegram User ID
 
 Message [@userinfobot](https://t.me/userinfobot) on Telegram -- it will reply with your user ID number.
+
+## Project Context Loading
+
+This fork automatically injects project-specific context into Claude's system prompt when using Project Threads. For each project directory, the bot loads:
+
+| File | Purpose |
+|------|---------|
+| `CLAUDE.md` | Project instructions, architecture notes, commands, rules |
+| `.claude/board.md` | Task board (TODO/WIP/DONE) |
+| `.claude/memory/memory.md` | Persistent project memory (decisions, preferences, context) |
+| `.claude/skills/**/SKILL.md` | Skill definitions (name + description from frontmatter) |
+
+All paths are relative to the project root. When you message in a project's Telegram topic, Claude automatically picks up that project's full context -- no manual configuration needed.
+
+### Example project structure
+
+```
+my-project/
+├── CLAUDE.md                          # Project instructions for Claude
+├── .claude/
+│   ├── board.md                       # Task board
+│   ├── memory/
+│   │   └── memory.md                  # Project memory index
+│   └── skills/
+│       ├── deploy/SKILL.md            # Deployment skill
+│       ├── test/SKILL.md              # Testing skill
+│       └── review/SKILL.md            # Code review skill
+├── src/
+└── tests/
+```
+
+### How it works
+
+1. Message arrives in a Telegram topic mapped to `my-project`
+2. Bot resolves the topic to `/home/you/projects/my-project`
+3. Bot loads `CLAUDE.md`, `.claude/board.md`, `.claude/memory/memory.md`, and all `SKILL.md` files
+4. All context is injected into Claude's system prompt
+5. Claude responds with full awareness of the project's rules, tasks, and capabilities
+
+Skills are discovered recursively -- `.claude/skills/x/SKILL.md`, `.claude/skills/x/y/SKILL.md`, etc. are all found automatically.
+
+## Team Setup (Multiple Users, One Server)
+
+Each team member runs their own bot instance with their own Telegram bot, pointing to their own projects. This gives full isolation -- separate sessions, separate project lists, separate costs.
+
+### Per-person setup
+
+Each colleague does the following on the shared server:
+
+**1. Create a Telegram bot**
+
+Open [@BotFather](https://t.me/BotFather), send `/newbot`, choose a name and username (e.g., `alice_claude_bot`). Copy the token.
+
+**2. Get your Telegram user ID**
+
+Message [@userinfobot](https://t.me/userinfobot) -- it replies with your numeric ID.
+
+**3. Install the bot**
+
+```bash
+mkdir -p ~/claude-bot && cd ~/claude-bot
+pip install git+https://github.com/krisdsilva/claude-code-telegram@feat/project-context-loading
+```
+
+**4. Configure**
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your details:
+
+```bash
+TELEGRAM_BOT_TOKEN=<your token from BotFather>
+TELEGRAM_BOT_USERNAME=<your bot username>
+APPROVED_DIRECTORY=/home/alice              # your home directory
+ALLOWED_USERS=<your telegram user id>
+
+# Enable project topics
+ENABLE_PROJECT_THREADS=true
+PROJECT_THREADS_MODE=private
+PROJECTS_CONFIG_PATH=config/projects.yaml
+```
+
+**5. Define your projects**
+
+```bash
+mkdir -p config
+```
+
+Create `config/projects.yaml`:
+
+```yaml
+projects:
+  - slug: my-api
+    name: My API Service
+    path: projects/my-api         # relative to APPROVED_DIRECTORY
+    enabled: true
+  - slug: ml-pipeline
+    name: ML Pipeline
+    path: projects/ml-pipeline
+    enabled: true
+```
+
+Each project directory should have a `CLAUDE.md` at minimum. Add `.claude/skills/` and `.claude/memory/memory.md` as needed.
+
+**6. Authenticate Claude**
+
+```bash
+claude auth login
+# Or set ANTHROPIC_API_KEY in .env
+```
+
+**7. Run as a service**
+
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/claude-telegram-bot.service << 'EOF'
+[Unit]
+Description=Claude Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/claude-bot
+ExecStart=%h/claude-bot/.venv/bin/claude-telegram-bot
+Restart=always
+RestartSec=10
+EnvironmentFile=%h/claude-bot/.env
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now claude-telegram-bot.service
+loginctl enable-linger $USER    # keep running after logout
+```
+
+**8. Verify**
+
+```bash
+systemctl --user status claude-telegram-bot
+journalctl --user -u claude-telegram-bot -f
+```
+
+Message your bot on Telegram -- `/start` will create topics for each of your projects.
+
+### What each person owns
+
+| Resource | Per-person? | Notes |
+|----------|-------------|-------|
+| Telegram bot | Yes | Each person creates their own via @BotFather |
+| `.env` config | Yes | Own token, user ID, directories |
+| `projects.yaml` | Yes | Own project list |
+| Claude auth | Yes | Own API key or CLI login |
+| Sessions (SQLite) | Yes | Stored in each person's `data/bot.db` |
+| Systemd service | Yes | User-level service, independent |
+
+### Shared projects
+
+If multiple people work on the same repo, each person adds it to their own `projects.yaml`. They'll each get a separate Telegram topic in their own DM, with separate Claude sessions. File changes are shared (it's the same directory on disk), but conversations are private.
 
 ## Troubleshooting
 
