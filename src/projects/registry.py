@@ -16,6 +16,7 @@ class ProjectDefinition:
     relative_path: Path
     absolute_path: Path
     enabled: bool = True
+    message_thread_id: Optional[int] = None
 
 
 class ProjectRegistry:
@@ -70,6 +71,10 @@ def load_project_registry(
         name = str(raw.get("name", "")).strip()
         rel_path_raw = str(raw.get("path", "")).strip()
         enabled = bool(raw.get("enabled", True))
+        raw_thread_id = raw.get("message_thread_id")
+        message_thread_id: Optional[int] = (
+            int(raw_thread_id) if raw_thread_id is not None else None
+        )
 
         if not slug:
             raise ValueError(f"Project entry at index {idx} is missing 'slug'")
@@ -116,6 +121,7 @@ def load_project_registry(
                 relative_path=rel_path,
                 absolute_path=absolute_path,
                 enabled=enabled,
+                message_thread_id=message_thread_id,
             )
         )
 

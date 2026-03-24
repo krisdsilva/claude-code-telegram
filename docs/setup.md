@@ -104,6 +104,94 @@ make run          # Production
 3. Try asking Claude a question about your project
 4. Use `/status` to check session info
 
+## Multi-Project Setup (Project Threads)
+
+Use project threads to manage multiple codebases from one bot, each in its own Telegram forum topic with an isolated Claude session.
+
+### Option A: Group mode (recommended for teams)
+
+Use a Telegram supergroup with forum topics. Each topic maps to a project directory.
+
+#### Prerequisites
+
+1. A Telegram supergroup with **Topics** enabled (group settings -> Topics)
+2. Your bot added as an **admin** with "Manage Topics" permission
+
+#### Step-by-step
+
+**1. Get your group's chat ID** from a message link in the group:
+```
+https://t.me/c/1234567890/1/1
+                ^^^^^^^^^^
+```
+Prefix with `-100`: chat ID = `-1001234567890`
+
+**2. Create** `config/projects.yaml`:
+```yaml
+projects:
+  - slug: my-api
+    name: My API
+    path: my-api              # relative to APPROVED_DIRECTORY
+    enabled: true
+
+  - slug: my-frontend
+    name: My Frontend
+    path: my-frontend
+    enabled: true
+```
+
+Each `path` must be a subdirectory of `APPROVED_DIRECTORY`. The directory must exist.
+
+**3. Configure** `.env`:
+```bash
+APPROVED_DIRECTORY=/home/projects       # parent of all project dirs
+ENABLE_PROJECT_THREADS=true
+PROJECT_THREADS_MODE=group
+PROJECT_THREADS_CHAT_ID=-1001234567890
+PROJECTS_CONFIG_PATH=config/projects.yaml
+```
+
+**4. Start the bot** and send `/sync_threads` in the group. The bot creates one topic per project.
+
+**5. Send messages** in a project topic to work with Claude in that project's directory.
+
+#### Binding to existing topics
+
+If you already have forum topics, add `message_thread_id` to each project to skip topic creation:
+
+```yaml
+projects:
+  - slug: my-api
+    name: My API
+    path: my-api
+    message_thread_id: 42
+    enabled: true
+```
+
+**Finding a topic's thread ID:** Send a message in the topic, then check the message link URL:
+```
+https://t.me/c/{channel_id}/{thread_id}/{message_id}
+```
+The middle number is the `message_thread_id`. The topic link itself may show a different number -- always use a message link from inside the topic.
+
+### Option B: Private mode (single user)
+
+Topics are created inside your 1-on-1 chat with the bot.
+
+1. Enable threaded mode in BotFather: `Bot Settings -> Threaded mode`
+2. Set `PROJECT_THREADS_MODE=private` in `.env` (omit `PROJECT_THREADS_CHAT_ID`)
+3. Send `/start` to the bot -- topics are created automatically
+
+### Launching from a Claude Code terminal
+
+If you start the bot from within a Claude Code session (IDE terminal, etc.), you'll get a "nested session" error because Claude Code sets the `CLAUDECODE` environment variable. Fix by unsetting it:
+
+```bash
+env -u CLAUDECODE make run
+```
+
+Or add `CLAUDECODE=` to your `.env` to override it permanently.
+
 ## Agentic Platform Setup
 
 The bot includes an event-driven platform for webhooks, scheduled jobs, and proactive notifications. All features are disabled by default.

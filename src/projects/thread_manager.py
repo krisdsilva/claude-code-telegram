@@ -76,12 +76,20 @@ class ProjectThreadManager:
                     if handled:
                         continue
 
-                await self._create_and_map_topic(
-                    bot=bot,
-                    project=project,
-                    chat_id=chat_id,
-                    result=result,
-                )
+                if project.message_thread_id is not None:
+                    await self._adopt_existing_topic(
+                        bot=bot,
+                        project=project,
+                        chat_id=chat_id,
+                        result=result,
+                    )
+                else:
+                    await self._create_and_map_topic(
+                        bot=bot,
+                        project=project,
+                        chat_id=chat_id,
+                        result=result,
+                    )
 
             except TelegramError as e:
                 if self._is_private_topics_unavailable_error(e):
@@ -251,6 +259,32 @@ class ProjectThreadManager:
             project_name=project.name,
         )
         result.created += 1
+
+    async def _adopt_existing_topic(
+        self,
+        bot: Bot,
+        project: ProjectDefinition,
+        chat_id: int,
+        result: TopicSyncResult,
+    ) -> None:
+        """Adopt a pre-existing topic by its message_thread_id from config."""
+        thread_id = project.message_thread_id
+        assert thread_id is not None
+
+        await self.repository.upsert_mapping(
+            project_slug=project.slug,
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            topic_name=project.name,
+            is_active=True,
+        )
+        logger.info(
+            "Adopted existing topic for project",
+            project_slug=project.slug,
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+        )
+        result.reused += 1
 
     async def _ensure_topic_usable(self, bot: Bot, mapping: ProjectThreadModel) -> str:
         """Ensure mapped topic is usable. Returns ok|unusable|failed."""

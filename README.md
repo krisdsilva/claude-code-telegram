@@ -265,36 +265,85 @@ ENABLE_SCHEDULER=false           # Enable cron job scheduler
 NOTIFICATION_CHAT_IDS=123,456    # Default chat IDs for proactive notifications
 ```
 
-### Project Threads Mode
+### Multi-Project Mode (Project Threads)
 
-```bash
-# Enable strict topic routing by project
-ENABLE_PROJECT_THREADS=true
+Give each project its own Telegram forum topic with an isolated Claude session and working directory.
 
-# Mode: private (default) or group
-PROJECT_THREADS_MODE=private
+**1. Create a supergroup with forum topics enabled** (or use an existing one).
 
-# YAML registry file (see config/projects.example.yaml)
-PROJECTS_CONFIG_PATH=config/projects.yaml
+**2. Add your bot** to the group as an admin with "Manage Topics" permission.
 
-# Required only when PROJECT_THREADS_MODE=group
-PROJECT_THREADS_CHAT_ID=-1001234567890
+**3. Define your projects** in `config/projects.yaml`:
 
-# Minimum delay (seconds) between Telegram API calls during topic sync
-# Set 0 to disable pacing
-PROJECT_THREADS_SYNC_ACTION_INTERVAL_SECONDS=1.1
+```yaml
+projects:
+  - slug: backend
+    name: Backend API
+    path: backend-api           # relative to APPROVED_DIRECTORY
+    enabled: true
+
+  - slug: frontend
+    name: Frontend App
+    path: frontend-app
+    enabled: true
 ```
 
-In strict mode, only `/start` and `/sync_threads` work outside mapped project topics.
-In private mode, `/start` auto-syncs project topics for your private bot chat.
-To use topics with your bot, enable them in BotFather:
-`Bot Settings -> Threaded mode`.
+**4. Configure** `.env`:
+
+```bash
+ENABLE_PROJECT_THREADS=true
+PROJECT_THREADS_MODE=group
+PROJECT_THREADS_CHAT_ID=-1001234567890   # your supergroup chat ID
+PROJECTS_CONFIG_PATH=config/projects.yaml
+```
+
+**5. Run the bot** and send `/sync_threads` in the group. The bot creates a topic per project.
+
+#### Using existing topics
+
+If you already have topics set up, add `message_thread_id` to skip topic creation:
+
+```yaml
+projects:
+  - slug: backend
+    name: Backend API
+    path: backend-api
+    message_thread_id: 42       # existing topic thread ID
+    enabled: true
+```
+
+To find a topic's thread ID, send a message in the topic and check the message link:
+`https://t.me/c/{channel_id}/{thread_id}/{message_id}` -- the middle number is the thread ID.
+
+#### How it works
+
+- Messages in each topic are routed to Claude with that project's directory as the working directory
+- Each topic maintains its own session history
+- Messages outside mapped topics are rejected with a guidance message
+- `/sync_threads` reconciles topics (creates missing, renames changed, closes disabled)
+
+#### Private mode
+
+Set `PROJECT_THREADS_MODE=private` to create topics inside your 1-on-1 bot chat instead.
+Enable threaded mode in BotFather first: `Bot Settings -> Threaded mode`.
 
 > **Full reference:** See [docs/configuration.md](docs/configuration.md) and [`.env.example`](.env.example).
 
-### Finding Your Telegram User ID
+### Finding Telegram IDs
 
-Message [@userinfobot](https://t.me/userinfobot) on Telegram -- it will reply with your user ID number.
+**Your user ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram -- it will reply with your user ID number.
+
+**Supergroup chat ID:** Check any message link from the group:
+```
+https://t.me/c/1234567890/1/1  ->  chat ID = -1001234567890
+```
+Prefix the channel number with `-100`.
+
+**Topic thread ID:** Send a message in the topic and check the message link:
+```
+https://t.me/c/{channel_id}/{thread_id}/{message_id}
+```
+The middle number is the `message_thread_id` for your `projects.yaml`.
 
 ## Troubleshooting
 
@@ -303,6 +352,21 @@ Message [@userinfobot](https://t.me/userinfobot) on Telegram -- it will reply wi
 - Verify your user ID is in `ALLOWED_USERS`
 - Ensure Claude Code CLI is installed and accessible
 - Check bot logs with `make run-debug`
+
+**"Nested session" error** (`Claude Code cannot be launched inside another Claude Code session`):
+- The bot was started from within a Claude Code terminal which sets `CLAUDECODE=1`
+- Fix: `env -u CLAUDECODE make run` or add `CLAUDECODE=` to your `.env`
+
+**"Project Thread Required" error:**
+- Messages must be sent in a mapped project topic, not the main chat
+- Run `/sync_threads` to create/reconcile topic mappings
+- If using existing topics with `message_thread_id`, verify the thread ID by checking an actual message link from inside the topic (the thread ID in topic links can be off by one)
+
+**409 Conflict** (`terminated by other getUpdates request`):
+- Another process is polling with the same bot token
+- Check for other bot instances: `ps aux | grep telegram`
+- Check for systemd services: `systemctl list-units --type=service | grep -i bot`
+- Only one process can poll a bot token at a time
 
 **Claude integration not working:**
 - SDK mode (default): Check `claude auth status` or verify `ANTHROPIC_API_KEY`

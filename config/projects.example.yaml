@@ -1,10 +1,29 @@
 projects:
-  - slug: claude-code-telegram
-    name: Claude Code Telegram
-    path: claude-code-telegram-main
+  # Each project maps to a directory under APPROVED_DIRECTORY
+  # and gets its own Telegram forum topic for isolated Claude sessions.
+
+  - slug: my-backend
+    name: Backend API
+    path: backend-api          # relative to APPROVED_DIRECTORY
     enabled: true
 
-  - slug: infra
-    name: Infrastructure
-    path: infrastructure
+  - slug: my-frontend
+    name: Frontend App
+    path: frontend-app
     enabled: true
+
+  # To bind to an existing Telegram forum topic instead of creating a new one,
+  # add message_thread_id with the topic's thread ID:
+  #
+  # - slug: infra
+  #   name: Infrastructure
+  #   path: infrastructure
+  #   message_thread_id: 42    # existing topic thread ID
+  #   enabled: true
+  #
+  # To find a topic's thread ID, send a message in the topic, then forward it
+  # to @JsonDumpBot or check the message link URL:
+  #   https://t.me/c/{channel_id}/{thread_id}/{message_id}
+  # The middle number is the thread ID. Note: the thread ID may differ from
+  # the number shown in the topic link by 1 -- verify by checking an actual
+  # message link from within the topic.
