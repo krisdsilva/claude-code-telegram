@@ -1,0 +1,12 @@
+projects:
+  - slug: hydra
+    name: HYDRA
+    path: HYDRA
+    message_thread_id: 87
+    enabled: true
+
+  - slug: autonomous-alpha-lab
+    name: Autonomous Alpha Lab
+    path: autonomous-alpha-lab
+    message_thread_id: 89
+    enabled: true
